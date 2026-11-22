@@ -1,7 +1,7 @@
 import base64
 import json
 from http.client import HTTPSConnection
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 HOST = "integrations-assignment-ticketforge.vercel.app"
 
@@ -64,6 +64,24 @@ class TicketForgeClient:
                 raise ValueError("Missing ticket reference")
             candidates[item["ref"]] = item.get("title", "")
         return candidates
+
+    def get_ticket(self, ref: str):
+        path = "/api/tforge/workitem/" + quote(ref, safe="") + "?view=deep"
+        data = self._request_json("GET", path)
+        item = data.get("workitem") if isinstance(data, dict) else None
+        if not isinstance(item, dict) or item.get("ref") != ref:
+            raise ValueError("Missing ticket details")
+        if not isinstance(item.setdefault("customFields", {}), dict):
+            raise ValueError("Invalid custom fields")
+        return item
+
+    def update_ticket(self, ref: str, ticket: dict):
+        fields = ("title", "description", "stage", "dependsOn", "customFields")
+        if any(field not in ticket for field in fields):
+            raise ValueError("Complete ticket details are required to save an edit")
+        payload = {field: ticket[field] for field in fields}
+        path = "/api/tforge/workitem/" + quote(ref, safe="")
+        return self._request_json("PUT", path, payload)
 
     def create_ticket(self, title: str, description: str, dependencies=None) -> str:
         payload = {"title": title, "description": description, "dependsOn": dependencies or None}

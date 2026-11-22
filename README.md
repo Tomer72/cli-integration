@@ -24,3 +24,11 @@ returns to the menu.
 Choose `2` to see your first five tickets. When more are available, enter `m`
 to append the next five. Enter any displayed row number to view its details.
 Press Enter to return to the expanded list, or Enter at the list to go back.
+
+## Edit a ticket
+
+Choose `2. List and edit tickets`, enter a ticket number, then press `e` and Enter to edit.
+Press Enter to keep a value, or type `/clear` to clear the description or
+dependencies. Enter replacement dependencies as comma-separated references.
+For stage, choose 1 (Open), 2 (In Progress), 3 (Review), or 4 (Closed).
+Type `y` at the save prompt to submit the changes.

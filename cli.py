@@ -37,6 +37,75 @@ def choose_dependencies(client: TicketForgeClient):
             print("Choose references from the displayed tickets.")
 
 
+STAGES = ("open", "in_progress", "review", "closed")
+
+
+def choose_stage(current: str) -> str:
+    print(f"Current stage: {current.replace('_', ' ').title()}")
+    for number, stage in enumerate(STAGES, start=1):
+        print(f"{number}. {stage.replace('_', ' ').title()}")
+    while True:
+        choice = input("Choose 1–4, or press Enter to keep the current stage: ").strip()
+        if not choice:
+            return current
+        if choice in ("1", "2", "3", "4"):
+            return STAGES[int(choice) - 1]
+        print("Please enter a number from 1 to 4.")
+
+
+def edit_ticket(client, ref):
+    try:
+        original = client.get_ticket(ref)
+    except (OSError, HTTPException, ValueError):
+        print("Could not load current ticket details.")
+        return
+    draft = original.copy()
+    for key in ("title", "description", "stage", "dependsOn"):
+        if key not in original:
+            print("Incomplete ticket details. Edit cancelled.")
+            return
+        if key == "stage":
+            draft[key] = choose_stage(original[key])
+            continue
+        hint = "Enter to keep"
+        if key in ("description", "dependsOn"):
+            hint += ", /clear to clear"
+        if key == "dependsOn":
+            hint += ", or enter comma-separated references"
+        while True:
+            value = input(f"{key} [{original[key]}] ({hint}): ")
+            if not value:
+                break
+            if key == "title" and not value.strip():
+                print("A title is required.")
+                continue
+            if key == "dependsOn":
+                refs = [part.strip() for part in value.split(",")]
+                if value != "/clear" and (not all(refs) or ref in refs):
+                    print("Enter valid references to other tickets.")
+                    continue
+                draft[key] = [] if value == "/clear" else list(dict.fromkeys(refs))
+            else:
+                draft[key] = "" if key == "description" and value == "/clear" else value.strip()
+            break
+    if draft == original:
+        print("No changes.")
+        return
+    if input("Save changes? [y/N]: ").strip().lower() != "y":
+        print("Edit cancelled.")
+        return
+    try:
+        client.update_ticket(ref, draft)
+    except (OSError, HTTPException, ValueError):
+        print("Could not confirm save. Reopen the ticket before retrying.")
+        return
+    print(f"Saved {ref}.")
+    try:
+        return client.get_ticket(ref)
+    except (OSError, HTTPException, ValueError):
+        print("Saved, but could not refresh the details.")
+
+
 def browse_tickets(client: TicketForgeClient) -> None:
     tickets = []
     seen_cursors = set()
@@ -69,7 +138,7 @@ def browse_tickets(client: TicketForgeClient) -> None:
         for number, ticket in enumerate(tickets, start=1):
             print(f"{number}. {ticket['ref']}  {ticket.get('title', '')}  [{ticket.get('stage', '—')}]")
         options = " | m: Show 5 more" if cursor else ""
-        choice = input(f"Ticket number{options} | Enter to go back: ").strip()
+        choice = input(f"Enter a ticket number to view or edit{options} | Enter to go back: ").strip()
         if not choice:
             return
         if cursor and choice.lower() == "m":
@@ -86,12 +155,18 @@ def browse_tickets(client: TicketForgeClient) -> None:
         ticket = tickets[number - 1]
         for field in ("ref", "title", "description", "stage", "created", "updated"):
             print(f"{field.capitalize()}: {ticket.get(field) or '—'}")
-        input("Press Enter to return to the list.")
+        if input("Type e to edit this ticket, or press Enter to return to the list: ").strip().lower() == "e":
+            saved = edit_ticket(client, ticket["ref"])
+            if saved:
+                ticket.update(saved)
+                for field in ("ref", "title", "description", "stage", "dependsOn", "updated"):
+                    print(f"{field}: {ticket.get(field)}")
+                input("Press Enter to return to the list.")
 
 
 def signed_in_menu(client: TicketForgeClient) -> None:
     while True:
-        choice = input("1. Create ticket | 2. List tickets | Enter to log out: ").strip()
+        choice = input("1. Create ticket | 2. List and edit tickets | Enter to log out: ").strip()
         if not choice:
             return
         if choice == "2":
