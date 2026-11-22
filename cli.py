@@ -1,4 +1,4 @@
-from getpass import getpass
+import ui
 from http.client import HTTPException
 
 from client import LoginRequired, TicketForgeClient
@@ -7,106 +7,114 @@ from client import LoginRequired, TicketForgeClient
 def choose_dependencies(client: TicketForgeClient):
     """Return selected references, or None to cancel creation."""
     while True:
-        choice = input("Dependencies: 1 to select | Enter to skip | c to cancel: ").strip()
-        if not choice:
+        choice = ui.menu([("1", "Choose dependencies"), ("s", "Skip dependencies"), ("c", "Cancel ticket")], default="s")
+        if choice == "s":
             return []
         if choice.lower() == "c":
             return None
         if choice != "1":
-            print("Choose 1, Enter, or c.")
+            ui.message("Choose 1, Enter, or c.")
             continue
         try:
             candidates = client.dependency_candidates()
         except (OSError, HTTPException, ValueError):
-            print("Could not load tickets. Retry, skip dependencies, or cancel.")
+            ui.message("Could not load tickets. Retry, skip dependencies, or cancel.")
             continue
         if not candidates:
-            print("No tickets available. Skip dependencies or cancel.")
+            ui.message("No tickets available. Skip dependencies or cancel.")
             continue
-        for ref, title in candidates.items():
-            print(f"{ref}  {title}")
-        while True:
-            selection = input("References separated by commas (Enter to skip, c to cancel): ").strip()
-            if not selection:
-                return []
-            if selection.lower() == "c":
-                return None
-            refs = [part.strip() for part in selection.split(",")]
-            if all(ref in candidates for ref in refs):
-                return list(dict.fromkeys(refs))
-            print("Choose references from the displayed tickets.")
+        selected = ui.checklist(candidates, [])
+        if selected is not None:
+            return selected
 
 
 STAGES = ("open", "in_progress", "review", "closed")
 
 
 def choose_stage(current: str) -> str:
-    print(f"Current stage: {current.replace('_', ' ').title()}")
-    for number, stage in enumerate(STAGES, start=1):
-        print(f"{number}. {stage.replace('_', ' ').title()}")
-    while True:
-        choice = input("Choose 1–4, or press Enter to keep the current stage: ").strip()
-        if not choice:
-            return current
-        if choice in ("1", "2", "3", "4"):
-            return STAGES[int(choice) - 1]
-        print("Please enter a number from 1 to 4.")
+    ui.message(f"Current stage: {ui.display(current).replace('_', ' ').title()}")
+    options = [(str(n), stage.replace("_", " ").title()) for n, stage in enumerate(STAGES, 1)]
+    if current in STAGES:
+        selected = str(STAGES.index(current) + 1)
+    else:
+        options.append(("k", "Keep current stage"))
+        selected = "k"
+    key = ui.menu(options, default=selected, stages=dict(zip(("1","2","3","4"), STAGES)))
+    return current if key == "k" else STAGES[int(key) - 1]
 
 
 def edit_ticket(client, ref):
     try:
         original = client.get_ticket(ref)
     except (OSError, HTTPException, ValueError):
-        print("Could not load current ticket details.")
+        ui.message("Could not load current ticket details.")
         return
     draft = original.copy()
     for key in ("title", "description", "stage", "dependsOn"):
         if key not in original:
-            print("Incomplete ticket details. Edit cancelled.")
+            ui.message("Incomplete ticket details. Edit cancelled.")
             return
         if key == "stage":
             draft[key] = choose_stage(original[key])
             continue
-        hint = "Enter to keep"
-        if key in ("description", "dependsOn"):
-            hint += ", /clear to clear"
         if key == "dependsOn":
-            hint += ", or enter comma-separated references"
+            existing = original[key] or []
+            ui.message(f"Dependencies: {ui.display(', '.join(existing) or 'None')}")
+            if ui.menu([("k", "Keep dependencies"), ("s", "Select dependencies")]) == "s":
+                try:
+                    candidates = client.dependency_candidates()
+                except (OSError, HTTPException, ValueError):
+                    ui.message("Could not load dependencies. Existing selection kept.")
+                    continue
+                for dependency in existing:
+                    candidates.setdefault(dependency, "")
+                candidates.pop(ref, None)
+                if candidates:
+                    selection = ui.checklist(candidates, existing)
+                    if selection is not None and set(selection) != set(existing):
+                        draft[key] = selection
+                else:
+                    ui.message("No available dependencies.")
+            continue
+        ui.message(f"Current {key}: {ui.display(original[key]) or '—'}")
+        hint = "Enter to keep, /clear to clear" if key == "description" else "Enter to keep"
         while True:
-            value = input(f"{key} [{original[key]}] ({hint}): ")
+            value = ui.field(f"Enter a new {key} ({hint}): ")
             if not value:
                 break
             if key == "title" and not value.strip():
-                print("A title is required.")
+                ui.message("A title is required.")
                 continue
-            if key == "dependsOn":
-                refs = [part.strip() for part in value.split(",")]
-                if value != "/clear" and (not all(refs) or ref in refs):
-                    print("Enter valid references to other tickets.")
-                    continue
-                draft[key] = [] if value == "/clear" else list(dict.fromkeys(refs))
-            else:
-                draft[key] = "" if key == "description" and value == "/clear" else value.strip()
+            draft[key] = "" if key == "description" and value == "/clear" else value.strip()
+            ui.message(f"New {key}: {ui.display(draft[key]) or '—'}")
             break
     if draft == original:
-        print("No changes.")
+        ui.message("No changes.")
         return
-    if input("Save changes? [y/N]: ").strip().lower() != "y":
-        print("Edit cancelled.")
+    ui.message("\n" + ui.tint("Changes to save", 45))
+    for key, value in draft.items():
+        if original.get(key) != value:
+            ui.message(f"  {key}: {ui.display(original[key])} → {ui.tint(ui.display(value), 35)}")
+    if ui.menu([("y", "Save changes"), ("n", "Discard changes")], default="n") != "y":
+        ui.message("Edit cancelled.")
         return
     try:
         client.update_ticket(ref, draft)
     except (OSError, HTTPException, ValueError):
-        print("Could not confirm save. Reopen the ticket before retrying.")
+        ui.message("Could not confirm save. Reopen the ticket before retrying.")
         return
-    print(f"Saved {ref}.")
+    ui.message(f"Saved {ref}.")
     try:
         return client.get_ticket(ref)
     except (OSError, HTTPException, ValueError):
-        print("Saved, but could not refresh the details.")
+        ui.message("Saved, but could not refresh the details.")
 
 
-def browse_tickets(client: TicketForgeClient) -> None:
+def show_details(ticket):
+    ui.message(lambda: ui.ticket_box(ticket))
+
+
+def browse_tickets(client: TicketForgeClient, username) -> None:
     tickets = []
     seen_cursors = set()
     cursor = None
@@ -117,9 +125,9 @@ def browse_tickets(client: TicketForgeClient) -> None:
                 rows, pagination = client.list_tickets(cursor)
             except (OSError, HTTPException, ValueError):
                 if cursor is None:
-                    print("Could not load tickets. Please try again.")
+                    ui.message("Could not load tickets. Please try again.")
                     return
-                print("Could not load more tickets. Enter m to retry.")
+                ui.message("Could not load more tickets. Enter m to retry.")
             else:
                 tickets.extend(rows)
                 cursor = None
@@ -129,101 +137,109 @@ def browse_tickets(client: TicketForgeClient) -> None:
                         cursor = token
                         seen_cursors.add(token)
                     else:
-                        print("TicketForge returned an invalid cursor. Further pages are unavailable.")
+                        ui.message("TicketForge returned an invalid cursor. Further pages are unavailable.")
                 if not tickets and cursor is None:
-                    print("No tickets to display.")
+                    ui.message("No tickets to display.")
                     return
             load_page = False
 
-        for number, ticket in enumerate(tickets, start=1):
-            print(f"{number}. {ticket['ref']}  {ticket.get('title', '')}  [{ticket.get('stage', '—')}]")
-        options = " | m: Show 5 more" if cursor else ""
-        choice = input(f"Enter a ticket number to view or edit{options} | Enter to go back: ").strip()
-        if not choice:
+        ui.header("My tickets", username)
+        options = [(str(n), f"{ticket['ref']}  {ticket.get('title', '')}  ·  "
+                    f"{ticket.get('stage', '—').replace('_', ' ').title()}")
+                   for n, ticket in enumerate(tickets, 1)]
+        if cursor:
+            options.append(("m", "Show 5 more"))
+        options.append(("b", "Back to home"))
+        choice = ui.menu(options, stages={str(n): t.get("stage") for n, t in enumerate(tickets, 1)})
+        if choice == "b":
             return
         if cursor and choice.lower() == "m":
             load_page = True
             continue
+        ticket = tickets[int(choice) - 1]
+        ui.header(f"Ticket {ticket['ref']}", username)
         try:
-            number = int(choice)
-        except ValueError:
-            number = 0
-        if not 1 <= number <= len(tickets):
-            print(f"Choose a number from 1 to {len(tickets)}.")
+            ticket.update(client.get_ticket(ticket["ref"]))
+        except (OSError, HTTPException, ValueError):
+            ui.message("Could not load ticket details.")
             continue
-
-        ticket = tickets[number - 1]
-        for field in ("ref", "title", "description", "stage", "created", "updated"):
-            print(f"{field.capitalize()}: {ticket.get(field) or '—'}")
-        if input("Type e to edit this ticket, or press Enter to return to the list: ").strip().lower() == "e":
+        show_details(ticket)
+        if ui.menu([("e", "Edit ticket"), ("b", "Back to tickets")], default="b") == "e":
+            ui.header(f"Edit {ticket['ref']}", username)
             saved = edit_ticket(client, ticket["ref"])
             if saved:
                 ticket.update(saved)
-                for field in ("ref", "title", "description", "stage", "dependsOn", "updated"):
-                    print(f"{field}: {ticket.get(field)}")
-                input("Press Enter to return to the list.")
+                show_details(ticket)
+                ui.menu([("b", "Back to tickets")])
 
 
-def signed_in_menu(client: TicketForgeClient) -> None:
+def signed_in_menu(client: TicketForgeClient, username) -> None:
     while True:
-        choice = input("1. Create ticket | 2. List and edit tickets | Enter to log out: ").strip()
-        if not choice:
+        ui.header("Home", username)
+        choice = ui.menu([("1", "Create ticket"), ("2", "List and edit tickets"), ("3", "Log out")])
+        if choice == "3":
             return
         if choice == "2":
             try:
-                browse_tickets(client)
+                browse_tickets(client, username)
             except LoginRequired:
-                print("Please sign in again.")
+                ui.message("Please sign in again.")
                 return
             continue
         if choice != "1":
-            print("Choose 1, 2, or press Enter.")
+            ui.message("Choose 1, 2, or press Enter.")
             continue
 
-        title = input("Title: ").strip()
+        ui.header("Create ticket", username)
+        title = ui.field("Enter a ticket title: ").strip()
         if not title:
-            print("A title is required.")
+            ui.message("A title is required.")
             continue
-        description = input("Description: ")
+        ui.message(f"Title: {ui.display(title)}")
+        description = ui.field("Enter a description: ")
+        ui.message(f"Description: {ui.display(description) or '—'}")
         try:
             dependencies = choose_dependencies(client)
             if dependencies is None:
                 continue
             ref = client.create_ticket(title, description, dependencies)
         except LoginRequired:
-            print("Please sign in again.")
+            ui.message("Please sign in again.")
             return
         except (OSError, HTTPException, ValueError):
-            print("Could not confirm creation. Check your dashboard before retrying.")
+            ui.message("Could not confirm creation. Check your dashboard before retrying.")
         else:
-            print(f"Created {ref}.")
+            ui.message(f"Created {ref}.")
 
 
 def run() -> None:
     while True:
-        username = input("Username (Enter to exit): ").strip()
+        ui.header("Sign in to TicketForge")
+        username = ui.field("Enter your username: ", login=True).strip()
         if not username:
-            return
+            continue
 
-        client = TicketForgeClient(username, getpass("Password: "))
+        ui.message(f"Username: {ui.display(username)}")
+        client = TicketForgeClient(username, ui.field("Enter your password (hidden): ", secret=True))
         try:
             status = client.check_login()
         except (OSError, HTTPException):
-            print("Could not connect to TicketForge. Check your connection and try again.")
+            ui.message("Could not connect to TicketForge. Check your connection and try again.")
         else:
             if status == 200:
-                print(f"Signed in as {username}.")
-                signed_in_menu(client)
-                print("Logged out.")
+                ui.message(f"Signed in as {username}.")
+                signed_in_menu(client, username)
+                ui.message("Logged out.")
             elif status == 401:
-                print("Incorrect username or password. Try again.")
+                ui.message("Incorrect username or password. Try again.")
             else:
-                print(f"TicketForge returned HTTP {status}. Login failed.")
+                ui.message(f"TicketForge returned HTTP {status}. Login failed.")
         del client
 
 
 if __name__ == "__main__":
     try:
-        run()
-    except (EOFError, KeyboardInterrupt):
+        with ui.workspace():
+            run()
+    except (EOFError, KeyboardInterrupt, ui.ExitRequested):
         print()
