@@ -167,11 +167,16 @@ def fixed_prompt(label, bindings, *, content=None, hint="", default="", secret=F
     root = HSplit(
         [
             text_window(brand, dont_extend_height=True, wrap_lines=True),
+            rule(),
             text_window(" " + _screen, height=1),
             Window(height=1),
             main,
             text_window(hint or "Ctrl-P Commands   ·   PgUp/PgDn Scroll", height=1),
-            text_window(short_label, height=1),
+            text_window(
+                short_label,
+                height=1,
+                style="bold" if short_label == "Choose an action" else "",
+            ),
             rule(),
             entry,
             rule(),
@@ -231,10 +236,21 @@ def ticket_box(ticket):
     inside = width - 4
     lines = ["╭" + "─" * (width - 2) + "╮"]
 
-    def row(text, color=None):
-        # Use display columns for full-width characters and combining marks.
+    def row(text, *, label="", color=None, heading=False):
         line = ""
         used = 0
+        offset = 0
+
+        def finish():
+            label_end = max(0, len(label) - offset)
+            name, value = line[:label_end], line[label_end:]
+            if interactive() and name:
+                name = f"\033[1m{name}\033[0m"
+            if color and color_enabled() and value:
+                weight = "1;" if heading else ""
+                value = f"\033[{weight}38;5;{color}m{value}\033[0m"
+            lines.append("│ " + name + value + " " * (inside - used) + " │")
+
         for char in display(text):
             cells = (
                 0
@@ -242,24 +258,20 @@ def ticket_box(ticket):
                 else 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
             )
             if used + cells > inside:
-                lines.append(
-                    "│ "
-                    + (tint(line, color) if color else line)
-                    + " " * (inside - used)
-                    + " │"
-                )
+                finish()
+                offset += len(line)
                 line, used = "", 0
             line += char
             used += cells
-        lines.append(
-            "│ " + (tint(line, color) if color else line) + " " * (inside - used) + " │"
-        )
+        finish()
 
-    row(f"{ticket['ref']} · {ticket.get('title') or 'Untitled'}", 45)
+    row(
+        f"{ticket['ref']} · {ticket.get('title') or 'Untitled'}", color=45, heading=True
+    )
     stage = ticket.get("stage") or ""
-    row("Stage        " + stage_label(stage), STAGE_COLORS.get(stage))
     owner = ticket.get("owner") or {}
     for label, value in (
+        ("Stage", stage_label(stage)),
         ("Description", ticket.get("description") or "No description"),
         ("Depends on", ", ".join(ticket.get("dependsOn") or []) or "None"),
         ("Owner", owner.get("username") or "Unknown"),
@@ -269,10 +281,12 @@ def ticket_box(ticket):
         if label == "Owner":
             row("")
         prefix = f"{label:<13}" if inside >= 32 else f"{label}: "
-        for line in textwrap.wrap(
-            prefix + display(value), inside, subsequent_indent=""
-        ):
-            row(line)
+        for index, line in enumerate(textwrap.wrap(prefix + display(value), inside)):
+            row(
+                line,
+                label=label if index == 0 else "",
+                color=STAGE_COLORS.get(stage) if label == "Stage" else None,
+            )
     lines.append("╰" + "─" * (width - 2) + "╯")
     return "\n".join(lines)
 
