@@ -22,8 +22,12 @@ except ImportError:
 
 
 def interactive():
-    return bool(Application and sys.stdin.isatty() and sys.stdout.isatty()
-                and os.environ.get("TERM") != "dumb")
+    return bool(
+        Application
+        and sys.stdin.isatty()
+        and sys.stdout.isatty()
+        and os.environ.get("TERM") != "dumb"
+    )
 
 
 def color_enabled():
@@ -32,8 +36,9 @@ def color_enabled():
 
 def display(value):
     """Keep external ticket text printable in the terminal."""
-    return "".join(c if not unicodedata.category(c).startswith("C") else " "
-                   for c in str(value))
+    return "".join(
+        c if not unicodedata.category(c).startswith("C") else " " for c in str(value)
+    )
 
 
 _screen = ""
@@ -54,7 +59,9 @@ def header(screen, username=None):
     del _messages[:_presented]
     _presented = 0
     if not interactive():
-        print(f"\nTicketForge CLI   |   Tomer Dahan's Assignment\n{_screen}\n  / Commands\n")
+        print(
+            f"\nTicketForge CLI   |   Tomer Dahan's Assignment\n{_screen}\n  / Commands\n"
+        )
 
 
 def fixed_prompt(label, bindings, *, content=None, hint="", default="", secret=False):
@@ -67,20 +74,33 @@ def fixed_prompt(label, bindings, *, content=None, hint="", default="", secret=F
         width = get_app().output.get_size().columns
         gap = width - len(title) - len(attribution) - 2
         space = " " * gap if gap >= 2 else "\n "
-        return [("bold fg:#5599ff" if color_enabled() else "bold", " " + title),
-                ("", space), ("fg:#b8bec8" if color_enabled() else "", attribution)]
+        return [
+            ("bold fg:#5599ff" if color_enabled() else "bold", " " + title),
+            ("", space),
+            ("fg:#b8bec8" if color_enabled() else "", attribution),
+        ]
 
     def body():
-        parts = list(to_formatted_text(ANSI("\n".join(m() if callable(m) else m for m in _messages))))
+        parts = list(
+            to_formatted_text(
+                ANSI("\n".join(m() if callable(m) else m for m in _messages))
+            )
+        )
         if parts:
             parts.append(("", "\n\n"))
         if content:
             parts.extend(content())
         return parts
 
-    entry = TextArea(text=default, multiline=False, password=secret, height=1,
-                     wrap_lines=False, prompt="❯ ",
-                     accept_handler=lambda buffer: get_app().exit(result=buffer.text))
+    entry = TextArea(
+        text=default,
+        multiline=False,
+        password=secret,
+        height=1,
+        wrap_lines=False,
+        prompt="❯ ",
+        accept_handler=lambda buffer: get_app().exit(result=buffer.text),
+    )
     entry.buffer.cursor_position = len(default)
     short_label = label.strip().rstrip(":› ").strip()
 
@@ -88,12 +108,18 @@ def fixed_prompt(label, bindings, *, content=None, hint="", default="", secret=F
         return Window(FormattedTextControl(text), **kwargs)
 
     scroll_line = [None]
+
     def scroll(event, direction):
         info = main.render_info
         if info:
             row = info.first_visible_line()
-            scroll_line[0] = max(0, min(info.content_height - 1,
-                                        row + direction * max(1, info.window_height - 1)))
+            scroll_line[0] = max(
+                0,
+                min(
+                    info.content_height - 1,
+                    row + direction * max(1, info.window_height - 1),
+                ),
+            )
             event.app.invalidate()
 
     @bindings.add("c-c")
@@ -124,25 +150,40 @@ def fixed_prompt(label, bindings, *, content=None, hint="", default="", secret=F
         for index, line in enumerate(lines):
             if index == scroll_line[0]:
                 result.append(("[SetCursorPosition]", ""))
-            result.extend((style, text) for style, text in line if "[SetCursorPosition]" not in style)
+            result.extend(
+                (style, text)
+                for style, text in line
+                if "[SetCursorPosition]" not in style
+            )
             result.append(("", "\n"))
         return result
 
     main = text_window(scrollable_body, wrap_lines=True)
     rule_style = "fg:#68778b" if color_enabled() else ""
+
     def rule():
         return Window(height=1, char="─", style=rule_style)
 
-    root = HSplit([
-        text_window(brand, dont_extend_height=True, wrap_lines=True),
-        text_window(" " + _screen, height=1),
-        Window(height=1), main,
-        text_window(hint or "Ctrl-P Commands   ·   PgUp/PgDn Scroll", height=1),
-        text_window(short_label, height=1), rule(), entry, rule(),
-    ], height=lambda: get_app().output.get_size().rows)
+    root = HSplit(
+        [
+            text_window(brand, dont_extend_height=True, wrap_lines=True),
+            text_window(" " + _screen, height=1),
+            Window(height=1),
+            main,
+            text_window(hint or "Ctrl-P Commands   ·   PgUp/PgDn Scroll", height=1),
+            text_window(short_label, height=1),
+            rule(),
+            entry,
+            rule(),
+        ],
+        height=lambda: get_app().output.get_size().rows,
+    )
     print("\033[H", end="", flush=True)
-    app = Application(layout=Layout(root, focused_element=entry), key_bindings=bindings,
-                      erase_when_done=False)
+    app = Application(
+        layout=Layout(root, focused_element=entry),
+        key_bindings=bindings,
+        erase_when_done=False,
+    )
     return app.run()
 
 
@@ -195,13 +236,24 @@ def ticket_box(ticket):
         line = ""
         used = 0
         for char in display(text):
-            cells = 0 if unicodedata.combining(char) else 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+            cells = (
+                0
+                if unicodedata.combining(char)
+                else 2 if unicodedata.east_asian_width(char) in ("W", "F") else 1
+            )
             if used + cells > inside:
-                lines.append("│ " + (tint(line, color) if color else line) + " " * (inside - used) + " │")
+                lines.append(
+                    "│ "
+                    + (tint(line, color) if color else line)
+                    + " " * (inside - used)
+                    + " │"
+                )
                 line, used = "", 0
             line += char
             used += cells
-        lines.append("│ " + (tint(line, color) if color else line) + " " * (inside - used) + " │")
+        lines.append(
+            "│ " + (tint(line, color) if color else line) + " " * (inside - used) + " │"
+        )
 
     row(f"{ticket['ref']} · {ticket.get('title') or 'Untitled'}", 45)
     stage = ticket.get("stage") or ""
@@ -217,7 +269,9 @@ def ticket_box(ticket):
         if label == "Owner":
             row("")
         prefix = f"{label:<13}" if inside >= 32 else f"{label}: "
-        for line in textwrap.wrap(prefix + display(value), inside, subsequent_indent=""):
+        for line in textwrap.wrap(
+            prefix + display(value), inside, subsequent_indent=""
+        ):
             row(line)
     lines.append("╰" + "─" * (width - 2) + "╯")
     return "\n".join(lines)
@@ -245,12 +299,18 @@ def field(label, *, secret=False, login=False):
                 event.app.exit(result=(event.current_buffer.text,))
 
             if login:
+
                 @bindings.add("/")
                 def login_commands(event):
                     event.app.exit(result=(event.current_buffer.text,))
 
-            value = fixed_prompt(label, bindings, default=draft, secret=secret,
-                                 hint="/ Commands   ·   Ctrl-P Commands" if login else "")
+            value = fixed_prompt(
+                label,
+                bindings,
+                default=draft,
+                secret=secret,
+                hint="/ Commands   ·   Ctrl-P Commands" if login else "",
+            )
             if isinstance(value, tuple):
                 draft = value[0]
                 palette()
@@ -296,6 +356,7 @@ def menu(options, default=None, *, commands=True, stages=None):
     bindings = KeyBindings()
 
     if commands:
+
         @bindings.add("/")
         def open_palette(event):
             event.app.exit(result="/")
@@ -315,8 +376,12 @@ def menu(options, default=None, *, commands=True, stages=None):
             active = index == selected
             style = "bold fg:ansicyan" if active and color_enabled() else ""
             if stages and keys[index] in stages and color_enabled():
-                color = {"open": "#00af5f", "in_progress": "#ffaf00",
-                         "review": "#af87ff", "closed": "#3575bd"}.get(stages[keys[index]])
+                color = {
+                    "open": "#00af5f",
+                    "in_progress": "#ffaf00",
+                    "review": "#af87ff",
+                    "closed": "#3575bd",
+                }.get(stages[keys[index]])
                 if color:
                     style = ("bold " if active else "") + "fg:" + color
             if active:
@@ -325,9 +390,17 @@ def menu(options, default=None, *, commands=True, stages=None):
         return lines
 
     while True:
-        key = fixed_prompt("Choose an action" if commands else "Commands", bindings, content=render,
-                           hint="↑ ↓ Move   ·   Enter Select   ·   Type a shortcut" +
-                                ("   ·   / Commands" if commands else "")).strip().lower()
+        key = (
+            fixed_prompt(
+                "Choose an action" if commands else "Commands",
+                bindings,
+                content=render,
+                hint="↑ ↓ Move   ·   Enter Select   ·   Type a shortcut"
+                + ("   ·   / Commands" if commands else ""),
+            )
+            .strip()
+            .lower()
+        )
         if commands and key == "/":
             action = palette(back)
             if action:
@@ -348,7 +421,9 @@ def checklist(candidates, initial):
     focus = 0
     if not interactive():
         for n, ref in enumerate(refs, 1):
-            print(f"{n}. [{'x' if ref in selected else ' '}] {display(ref)}  {display(candidates[ref])}")
+            print(
+                f"{n}. [{'x' if ref in selected else ' '}] {display(ref)}  {display(candidates[ref])}"
+            )
         while True:
             value = input("Toggle by number, Enter to apply, c to cancel: ").strip()
             if not value:
@@ -367,7 +442,9 @@ def checklist(candidates, initial):
         @bindings.add("down")
         def move(event):
             nonlocal focus
-            focus = (focus + (1 if event.key_sequence[0].key == "down" else -1)) % len(refs)
+            focus = (focus + (1 if event.key_sequence[0].key == "down" else -1)) % len(
+                refs
+            )
             event.app.invalidate()
 
         @bindings.add(" ")
@@ -391,12 +468,21 @@ def checklist(candidates, initial):
                 style = "bold fg:ansicyan" if color_enabled() and i == focus else ""
                 if i == focus:
                     rows.append(("[SetCursorPosition]", ""))
-                rows.append((style, f"{prefix} [{mark}] {display(ref)}  {display(candidates[ref])}\n"))
+                rows.append(
+                    (
+                        style,
+                        f"{prefix} [{mark}] {display(ref)}  {display(candidates[ref])}\n",
+                    )
+                )
             return rows
 
         while True:
-            result = fixed_prompt("Choose dependencies", bindings, content=render,
-                                  hint="↑ ↓ Move   ·   Space Toggle   ·   Enter Apply   ·   Esc Cancel   ·   / Commands")
+            result = fixed_prompt(
+                "Choose dependencies",
+                bindings,
+                content=render,
+                hint="↑ ↓ Move   ·   Space Toggle   ·   Enter Apply   ·   Esc Cancel   ·   / Commands",
+            )
             if result == "cancel":
                 return None
             if result != "/":

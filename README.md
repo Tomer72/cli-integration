@@ -38,3 +38,47 @@ Choose `2. List and edit tickets`, enter a ticket number, then press `e` and Ent
 Ticket details show the owner and local timestamps. Press Enter to keep a value, or type `/clear` to clear the description. Choose **Select dependencies** to change the preselected tickets. Clear all checkmarks to remove dependencies.
 For stage, choose 1 (Open), 2 (In Progress), 3 (Review), or 4 (Closed).
 Type `y` at the save prompt to submit the changes.
+
+## Credentials and configuration
+
+Sign in with an existing TicketForge account. The CLI uses HTTP Basic
+authentication over HTTPS to the assignment service. Credentials are held in
+memory for the session. No environment file or API key is required.
+
+## Assumptions and limitations
+
+- Ticket listing follows the service’s cursor and loads five rows at a time.
+- Dependency selection offers the candidates returned by one lookup.
+- The editor preserves custom field values. Custom field administration and
+  account registration are outside the current CLI scope.
+- If a write cannot be confirmed, check the ticket before submitting again.
+
+## AI disclosure
+
+OpenAI Codex assisted with interpreting the assignment, planning the features,
+implementing the Python CLI, and simulating user flows. Browser network captures
+provided the request and response formats used by the integration.
+
+## Verification and demo
+
+From the repository root, run the offline tests and syntax checks:
+
+    python -m unittest discover -s tests -v
+    python -m compileall -q cli.py client.py tickets.py ui.py tests
+
+The [recorded CLI session](docs/demo.txt) shows login, creation, pagination,
+and an edit using simulated TicketForge responses. The tests exercise the actual
+CLI entry point and check the HTTPS request paths and payloads.
+
+For the optional formatting check, install Black 24.8.0 in your development
+environment and run `python -m black --check cli.py client.py tickets.py ui.py tests`.
+
+## Project layout
+
+| File | Responsibility |
+| --- | --- |
+| `cli.py` | Starts the app, manages login and logout, and routes menu actions. |
+| `tickets.py` | Runs create, browse, and edit workflows. |
+| `client.py` | Handles authenticated TicketForge API requests and responses. |
+| `ui.py` | Renders the terminal interface and handles keyboard input. |
+| `tests/` | Exercises the CLI with simulated HTTPS responses. |

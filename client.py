@@ -15,7 +15,9 @@ class TicketForgeClient:
     def check_login(self) -> int:
         connection = HTTPSConnection(HOST, timeout=10)
         try:
-            connection.request("GET", "/api/tforge/workitems/mine", headers=self._headers)
+            connection.request(
+                "GET", "/api/tforge/workitems/mine", headers=self._headers
+            )
             return connection.getresponse().status
         finally:
             connection.close()
@@ -42,14 +44,18 @@ class TicketForgeClient:
         query = {"limit": 5}
         if cursor is not None:
             query["cursor"] = cursor
-        page = self._request_json("GET", "/api/tforge/workitems/mine?" + urlencode(query))
+        page = self._request_json(
+            "GET", "/api/tforge/workitems/mine?" + urlencode(query)
+        )
         if not isinstance(page, dict) or not isinstance(page.get("workitems"), list):
             raise ValueError("Missing ticket list")
         for item in page["workitems"]:
             if not isinstance(item, dict) or not isinstance(item.get("ref"), str):
                 raise ValueError("Missing ticket reference")
         pagination = page.get("pagination")
-        if not isinstance(pagination, dict) or not isinstance(pagination.get("hasMore"), bool):
+        if not isinstance(pagination, dict) or not isinstance(
+            pagination.get("hasMore"), bool
+        ):
             raise ValueError("Missing pagination information")
         return page["workitems"], pagination
 
@@ -84,7 +90,11 @@ class TicketForgeClient:
         return self._request_json("PUT", path, payload)
 
     def create_ticket(self, title: str, description: str, dependencies=None) -> str:
-        payload = {"title": title, "description": description, "dependsOn": dependencies or None}
+        payload = {
+            "title": title,
+            "description": description,
+            "dependsOn": dependencies or None,
+        }
         data = self._request_json("POST", "/api/tforge/workitem/publish", payload)
         item = data.get("workitem") if isinstance(data, dict) else None
         ref = item.get("ref") if isinstance(item, dict) else None
