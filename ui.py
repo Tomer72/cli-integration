@@ -2,12 +2,12 @@
 
 import os
 import shutil
-import textwrap
 import sys
+import textwrap
 import unicodedata
-from getpass import getpass
 from contextlib import contextmanager
 from datetime import datetime
+from getpass import getpass
 
 try:
     from prompt_toolkit.application import Application, get_app
@@ -16,9 +16,26 @@ try:
     from prompt_toolkit.layout import HSplit, Layout, Window
     from prompt_toolkit.layout.controls import FormattedTextControl
     from prompt_toolkit.widgets import TextArea
-    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
 except ImportError:
     Application = None
+
+APP_TITLE = "TicketForge CLI"
+ATTRIBUTION = "Tomer Dahan's Assignment"
+
+# One palette for menus (prompt_toolkit styles) and ticket details (ANSI text).
+STAGE_COLORS = {
+    "open": "#00af5f",
+    "in_progress": "#ffaf00",
+    "review": "#af87ff",
+    "closed": "#3575bd",
+}
+ACCENT = "#00d7ff"
+CHANGED = "#00af5f"
+
+
+class ExitRequested(Exception):
+    """Leave the application from any screen."""
 
 
 def interactive():
@@ -59,9 +76,7 @@ def header(screen, username=None):
     del _messages[:_presented]
     _presented = 0
     if not interactive():
-        print(
-            f"\nTicketForge CLI   |   Tomer Dahan's Assignment\n{_screen}\n  / Commands\n"
-        )
+        print(f"\n{APP_TITLE}   |   {ATTRIBUTION}\n{_screen}\n  / Commands\n")
 
 
 def fixed_prompt(label, bindings, *, content=None, hint="", default="", secret=False):
@@ -70,14 +85,13 @@ def fixed_prompt(label, bindings, *, content=None, hint="", default="", secret=F
     _presented = len(_messages)
 
     def brand():
-        title, attribution = "TicketForge CLI", "Tomer Dahan's Assignment"
         width = get_app().output.get_size().columns
-        gap = width - len(title) - len(attribution) - 2
+        gap = width - len(APP_TITLE) - len(ATTRIBUTION) - 2
         space = " " * gap if gap >= 2 else "\n "
         return [
-            ("bold fg:#5599ff" if color_enabled() else "bold", " " + title),
+            ("bold fg:#5599ff" if color_enabled() else "bold", " " + APP_TITLE),
             ("", space),
-            ("fg:#b8bec8" if color_enabled() else "", attribution),
+            ("fg:#b8bec8" if color_enabled() else "", ATTRIBUTION),
         ]
 
     def body():
@@ -122,22 +136,25 @@ def fixed_prompt(label, bindings, *, content=None, hint="", default="", secret=F
             )
             event.app.invalidate()
 
-    @bindings.add("c-c")
+    # Shared keys live in their own object so repeated prompts never stack handlers.
+    common = KeyBindings()
+
+    @common.add("c-c")
     def interrupt(event):
         event.app.exit(exception=KeyboardInterrupt())
 
-    @bindings.add("c-d")
+    @common.add("c-d")
     def end_input(event):
         if not event.current_buffer.text:
             event.app.exit(exception=EOFError())
         else:
             event.current_buffer.delete()
 
-    @bindings.add("pageup")
+    @common.add("pageup")
     def previous_page(event):
         scroll(event, -1)
 
-    @bindings.add("pagedown")
+    @common.add("pagedown")
     def next_page(event):
         scroll(event, 1)
 
@@ -181,19 +198,18 @@ def fixed_prompt(label, bindings, *, content=None, hint="", default="", secret=F
             entry,
             rule(),
         ],
-        height=lambda: get_app().output.get_size().rows,
+        # One row short of the terminal: when a prompt finishes, prompt_toolkit
+        # moves the cursor below the frame. A full-height frame would make the
+        # terminal scroll by one line on every Enter, so the screen "jumps".
+        height=lambda: get_app().output.get_size().rows - 1,
     )
     print("\033[H", end="", flush=True)
     app = Application(
         layout=Layout(root, focused_element=entry),
-        key_bindings=bindings,
+        key_bindings=merge_key_bindings([bindings, common]),
         erase_when_done=False,
     )
     return app.run()
-
-
-class ExitRequested(Exception):
-    """Leave the application from any screen."""
 
 
 @contextmanager
@@ -208,15 +224,21 @@ def workspace():
             print("\033[0m\033[?1049l", end="", flush=True)
 
 
-STAGE_COLORS = {"open": 35, "in_progress": 214, "review": 141, "closed": 25}
+def colored(text, color, *, bold=False):
+    """Wrap text in a 24-bit ANSI color when color output is enabled."""
+    if not color_enabled():
+        return text
+    red, green, blue = (int(color[i : i + 2], 16) for i in (1, 3, 5))
+    weight = "1;" if bold else ""
+    return f"\033[{weight}38;2;{red};{green};{blue}m{text}\033[0m"
 
 
 def tint(text, color):
-    return f"\033[1;38;5;{color}m{text}\033[0m" if color_enabled() else text
+    return colored(text, color, bold=True)
 
 
 def stage_label(stage):
-    return display(stage).replace("_", " ").title()
+    return display(stage or "—").replace("_", " ").title()
 
 
 def timestamp(value):
@@ -246,9 +268,8 @@ def ticket_box(ticket):
             name, value = line[:label_end], line[label_end:]
             if interactive() and name:
                 name = f"\033[1m{name}\033[0m"
-            if color and color_enabled() and value:
-                weight = "1;" if heading else ""
-                value = f"\033[{weight}38;5;{color}m{value}\033[0m"
+            if color and value:
+                value = colored(value, color, bold=heading)
             lines.append("│ " + name + value + " " * (inside - used) + " │")
 
         for char in display(text):
@@ -266,7 +287,9 @@ def ticket_box(ticket):
         finish()
 
     row(
-        f"{ticket['ref']} · {ticket.get('title') or 'Untitled'}", color=45, heading=True
+        f"{ticket['ref']} · {ticket.get('title') or 'Untitled'}",
+        color=ACCENT,
+        heading=True,
     )
     stage = ticket.get("stage") or ""
     owner = ticket.get("owner") or {}
@@ -345,27 +368,30 @@ def menu(options, default=None, *, commands=True, stages=None):
     selected = keys.index(default) if default in keys else 0
     labels = [f"{key:>2}  {display(label)}" for key, label in options]
     back = next((k for k in ("b", "c", "n") if k in keys), None)
+
+    def resolve(key):
+        """Map typed input to an option key; None means ask again."""
+        if commands and key == "/exit":
+            raise ExitRequested
+        if commands and key == "/":
+            return palette(back)
+        if not commands:
+            key = key.lstrip("/")
+        if not key:
+            return keys[selected]
+        if key in keys:
+            return key
+        message("Choose one of the shortcuts shown above.")
+        return None
+
     if not interactive():
-        if commands:
-            print("  / Commands")
         for label in labels:
             print("  " + label)
         while True:
-            key = input(f"Choose an option [Enter: {keys[selected]}]: ").strip().lower()
-            if commands and key == "/exit":
-                raise ExitRequested
-            if commands and key == "/":
-                action = palette(back)
-                if action:
-                    return action
-                continue
-            if not commands:
-                key = key.lstrip("/")
-            if not key:
-                return keys[selected]
-            if key in keys:
-                return key
-            print("Choose one of the shortcuts shown above.")
+            prompt = f"Choose an option [Enter: {keys[selected]}]: "
+            choice = resolve(input(prompt).strip().lower())
+            if choice:
+                return choice
 
     bindings = KeyBindings()
 
@@ -390,12 +416,7 @@ def menu(options, default=None, *, commands=True, stages=None):
             active = index == selected
             style = "bold fg:ansicyan" if active and color_enabled() else ""
             if stages and keys[index] in stages and color_enabled():
-                color = {
-                    "open": "#00af5f",
-                    "in_progress": "#ffaf00",
-                    "review": "#af87ff",
-                    "closed": "#3575bd",
-                }.get(stages[keys[index]])
+                color = STAGE_COLORS.get(stages[keys[index]])
                 if color:
                     style = ("bold " if active else "") + "fg:" + color
             if active:
@@ -403,30 +424,15 @@ def menu(options, default=None, *, commands=True, stages=None):
             lines.append((style, (" ❯ " if active else "   ") + label + "\n"))
         return lines
 
+    hint = "↑ ↓ Move   ·   Enter Select   ·   Type a shortcut"
+    if commands:
+        hint += "   ·   / Commands"
     while True:
-        key = (
-            fixed_prompt(
-                "Choose an action" if commands else "Commands",
-                bindings,
-                content=render,
-                hint="↑ ↓ Move   ·   Enter Select   ·   Type a shortcut"
-                + ("   ·   / Commands" if commands else ""),
-            )
-            .strip()
-            .lower()
-        )
-        if commands and key == "/":
-            action = palette(back)
-            if action:
-                return action
-            continue
-        if not commands:
-            key = key.lstrip("/")
-        if not key:
-            return keys[selected]
-        if key in keys:
-            return key
-        message("Choose one of the shortcuts shown above.")
+        label = "Choose an action" if commands else "Commands"
+        key = fixed_prompt(label, bindings, content=render, hint=hint)
+        choice = resolve(key.strip().lower())
+        if choice:
+            return choice
 
 
 def checklist(candidates, initial):

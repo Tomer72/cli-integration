@@ -21,4 +21,4 @@ class TicketDetailsTests(unittest.TestCase):
         ):
             self.assertIn(f"\033[1m{label}\033[0m", card)
         self.assertIn("demo", card)
-        self.assertRegex(card, r"\x1b\[38;5;214m\s*In Progress\x1b\[0m")
+        self.assertRegex(card, r"\x1b\[38;2;255;175;0m\s*In Progress\x1b\[0m")

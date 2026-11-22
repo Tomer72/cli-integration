@@ -1,7 +1,6 @@
 TicketForge CLI | Actual plain-mode output with simulated HTTPS responses
-Scenario: login retry, create, load next page, open, edit stage, save, logout.
+Scenario 1: login retry, create, load next page, open, edit stage, save, logout.
 Times shown in UTC. Password input omitted.
-
 
 TicketForge CLI   |   Tomer Dahan's Assignment
 Sign in to TicketForge
@@ -23,7 +22,6 @@ TicketForge CLI   |   Tomer Dahan's Assignment
 Home   ·   demo
   / Commands
 
-  / Commands
    1  Create ticket
    2  List and edit tickets
    3  Log out
@@ -37,7 +35,6 @@ Enter a ticket title: Fix filter
 Title: Fix filter
 Enter a description: Hide closed tickets
 Description: Hide closed tickets
-  / Commands
    1  Choose dependencies
    s  Skip dependencies
    c  Cancel ticket
@@ -48,7 +45,6 @@ TicketForge CLI   |   Tomer Dahan's Assignment
 Home   ·   demo
   / Commands
 
-  / Commands
    1  Create ticket
    2  List and edit tickets
    3  Log out
@@ -58,7 +54,6 @@ TicketForge CLI   |   Tomer Dahan's Assignment
 My tickets   ·   demo
   / Commands
 
-  / Commands
    1  TF-100  Fix filter  ·  Open
    m  Show 5 more
    b  Back to home
@@ -68,7 +63,6 @@ TicketForge CLI   |   Tomer Dahan's Assignment
 My tickets   ·   demo
   / Commands
 
-  / Commands
    1  TF-100  Fix filter  ·  Open
    2  TF-101  Fix filter  ·  Open
    b  Back to home
@@ -88,7 +82,6 @@ Ticket TF-101   ·   demo
 │ Created      22 Nov 2026 · 11:00 UTC                                         │
 │ Updated      —                                                               │
 ╰──────────────────────────────────────────────────────────────────────────────╯
-  / Commands
    e  Edit ticket
    b  Back to tickets
 Choose an option [Enter: b]: e
@@ -102,21 +95,18 @@ Enter a new title (Enter to keep):
 Current description: Hide closed tickets
 Enter a new description (Enter to keep, /clear to clear):
 Current stage: Open
-  / Commands
    1  Open
    2  In Progress
    3  Review
    4  Closed
 Choose an option [Enter: 1]: 3
 Dependencies: None
-  / Commands
    k  Keep dependencies
    s  Select dependencies
 Choose an option [Enter: k]: k
 
 Changes to save
   stage: open → review
-  / Commands
    y  Save changes
    n  Discard changes
 Choose an option [Enter: n]: y
@@ -131,7 +121,6 @@ Saved TF-101.
 │ Created      22 Nov 2026 · 11:00 UTC                                         │
 │ Updated      —                                                               │
 ╰──────────────────────────────────────────────────────────────────────────────╯
-  / Commands
    b  Back to tickets
 Choose an option [Enter: b]: b
 
@@ -139,7 +128,6 @@ TicketForge CLI   |   Tomer Dahan's Assignment
 My tickets   ·   demo
   / Commands
 
-  / Commands
    1  TF-100  Fix filter  ·  Open
    2  TF-101  Fix filter  ·  Review
    b  Back to home
@@ -149,7 +137,6 @@ TicketForge CLI   |   Tomer Dahan's Assignment
 Home   ·   demo
   / Commands
 
-  / Commands
    1  Create ticket
    2  List and edit tickets
    3  Log out
@@ -161,3 +148,42 @@ Sign in to TicketForge
   / Commands
 
 Enter your username: /exit
+
+================================================================================
+Scenario 2: server error while listing, then an expired session.
+
+TicketForge CLI   |   Tomer Dahan's Assignment
+Sign in to TicketForge
+  / Commands
+
+Enter your username: demo
+Username: demo
+Signed in as demo.
+
+TicketForge CLI   |   Tomer Dahan's Assignment
+Home   ·   demo
+  / Commands
+
+   1  Create ticket
+   2  List and edit tickets
+   3  Log out
+Choose an option [Enter: 1]: 2
+Could not load tickets. Please try again.
+
+TicketForge CLI   |   Tomer Dahan's Assignment
+Home   ·   demo
+  / Commands
+
+   1  Create ticket
+   2  List and edit tickets
+   3  Log out
+Choose an option [Enter: 1]: 2
+Your session expired. Please sign in again.
+Logged out.
+
+TicketForge CLI   |   Tomer Dahan's Assignment
+Sign in to TicketForge
+  / Commands
+
+Enter your username: /exit
+

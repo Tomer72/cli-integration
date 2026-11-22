@@ -1,210 +1,68 @@
-from http.client import HTTPException
+"""Create, browse, and edit workflows built on the client and UI modules."""
 
 import ui
-from client import TicketForgeClient
-
-
-def choose_dependencies(client: TicketForgeClient):
-    """Return selected references, or None to cancel creation."""
-    while True:
-        choice = ui.menu(
-            [
-                ("1", "Choose dependencies"),
-                ("s", "Skip dependencies"),
-                ("c", "Cancel ticket"),
-            ],
-            default="s",
-        )
-        if choice == "s":
-            return []
-        if choice.lower() == "c":
-            return None
-        if choice != "1":
-            ui.message("Choose 1, Enter, or c.")
-            continue
-        try:
-            candidates = client.dependency_candidates()
-        except (OSError, HTTPException, ValueError):
-            ui.message("Could not load tickets. Retry, skip dependencies, or cancel.")
-            continue
-        if not candidates:
-            ui.message("No tickets available. Skip dependencies or cancel.")
-            continue
-        selected = ui.checklist(candidates, [])
-        if selected is not None:
-            return selected
-
+from client import EDITABLE_FIELDS, PAGE_SIZE, TicketForgeClient, TicketForgeError
 
 STAGES = ("open", "in_progress", "review", "closed")
 
 
-def choose_stage(current: str) -> str:
-    ui.message(f"Current stage: {ui.display(current).replace('_', ' ').title()}")
-    options = [
-        (str(n), stage.replace("_", " ").title()) for n, stage in enumerate(STAGES, 1)
-    ]
-    if current in STAGES:
-        selected = str(STAGES.index(current) + 1)
-    else:
-        options.append(("k", "Keep current stage"))
-        selected = "k"
-    key = ui.menu(
-        options, default=selected, stages=dict(zip(("1", "2", "3", "4"), STAGES))
-    )
-    return current if key == "k" else STAGES[int(key) - 1]
+# ----- Shared prompts ---------------------------------------------------------
 
 
-def edit_ticket(client, ref):
+def pick_dependencies(client, selected, exclude=None):
+    """Show the dependency checklist. Return chosen refs, or None if nothing was chosen."""
     try:
-        original = client.get_ticket(ref)
-    except (OSError, HTTPException, ValueError):
-        ui.message("Could not load current ticket details.")
-        return
-    draft = original.copy()
-    for key in ("title", "description", "stage", "dependsOn"):
-        if key not in original:
-            ui.message("Incomplete ticket details. Edit cancelled.")
-            return
-        if key == "stage":
-            draft[key] = choose_stage(original[key])
-            continue
-        if key == "dependsOn":
-            existing = original[key] or []
-            ui.message(f"Dependencies: {ui.display(', '.join(existing) or 'None')}")
-            if (
-                ui.menu([("k", "Keep dependencies"), ("s", "Select dependencies")])
-                == "s"
-            ):
-                try:
-                    candidates = client.dependency_candidates()
-                except (OSError, HTTPException, ValueError):
-                    ui.message("Could not load dependencies. Existing selection kept.")
-                    continue
-                for dependency in existing:
-                    candidates.setdefault(dependency, "")
-                candidates.pop(ref, None)
-                if candidates:
-                    selection = ui.checklist(candidates, existing)
-                    if selection is not None and set(selection) != set(existing):
-                        draft[key] = selection
-                else:
-                    ui.message("No available dependencies.")
-            continue
-        ui.message(f"Current {key}: {ui.display(original[key]) or '—'}")
-        hint = (
-            "Enter to keep, /clear to clear"
-            if key == "description"
-            else "Enter to keep"
-        )
-        while True:
-            value = ui.field(f"Enter a new {key} ({hint}): ")
-            if not value:
-                break
-            if key == "title" and not value.strip():
-                ui.message("A title is required.")
-                continue
-            draft[key] = (
-                "" if key == "description" and value == "/clear" else value.strip()
-            )
-            ui.message(f"New {key}: {ui.display(draft[key]) or '—'}")
-            break
-    if draft == original:
-        ui.message("No changes.")
-        return
-    ui.message("\n" + ui.tint("Changes to save", 45))
-    for key, value in draft.items():
-        if original.get(key) != value:
-            ui.message(
-                f"  {key}: {ui.display(original[key])} → {ui.tint(ui.display(value), 35)}"
-            )
-    if ui.menu([("y", "Save changes"), ("n", "Discard changes")], default="n") != "y":
-        ui.message("Edit cancelled.")
-        return
-    try:
-        client.update_ticket(ref, draft)
-    except (OSError, HTTPException, ValueError):
-        ui.message("Could not confirm save. Reopen the ticket before retrying.")
-        return
-    ui.message(f"Saved {ref}.")
-    try:
-        return client.get_ticket(ref)
-    except (OSError, HTTPException, ValueError):
-        ui.message("Saved, but could not refresh the details.")
+        candidates = client.dependency_candidates()
+    except TicketForgeError:
+        ui.message("Could not load tickets.")
+        return None
+    for ref in selected:
+        candidates.setdefault(ref, "")
+    candidates.pop(exclude, None)
+    if not candidates:
+        ui.message("No tickets available.")
+        return None
+    return ui.checklist(candidates, selected)
 
 
-def show_details(ticket):
-    ui.message(lambda: ui.ticket_box(ticket))
-
-
-def browse_tickets(client: TicketForgeClient, username) -> None:
-    tickets = []
-    seen_cursors = set()
-    cursor = None
-    load_page = True
+def edit_text(name, current, *, required=False, clearable=False):
+    """Ask for a new value; Enter keeps the current one."""
+    ui.message(f"Current {name}: {ui.display(current) or '—'}")
+    hint = "Enter to keep, /clear to clear" if clearable else "Enter to keep"
     while True:
-        if load_page:
-            try:
-                rows, pagination = client.list_tickets(cursor)
-            except (OSError, HTTPException, ValueError):
-                if cursor is None:
-                    ui.message("Could not load tickets. Please try again.")
-                    return
-                ui.message("Could not load more tickets. Enter m to retry.")
-            else:
-                tickets.extend(rows)
-                cursor = None
-                if pagination["hasMore"]:
-                    token = pagination.get("nextCursor")
-                    if isinstance(token, str) and token and token not in seen_cursors:
-                        cursor = token
-                        seen_cursors.add(token)
-                    else:
-                        ui.message(
-                            "TicketForge returned an invalid cursor. Further pages are unavailable."
-                        )
-                if not tickets and cursor is None:
-                    ui.message("No tickets to display.")
-                    return
-            load_page = False
+        value = ui.field(f"Enter a new {name} ({hint}): ")
+        if not value:
+            return current
+        value = "" if clearable and value == "/clear" else value.strip()
+        if required and not value:
+            ui.message(f"A {name} is required.")
+            continue
+        ui.message(f"New {name}: {ui.display(value) or '—'}")
+        return value
 
-        ui.header("My tickets", username)
-        options = [
-            (
-                str(n),
-                f"{ticket['ref']}  {ticket.get('title', '')}  ·  "
-                f"{ticket.get('stage', '—').replace('_', ' ').title()}",
-            )
-            for n, ticket in enumerate(tickets, 1)
-        ]
-        if cursor:
-            options.append(("m", "Show 5 more"))
-        options.append(("b", "Back to home"))
-        choice = ui.menu(
-            options, stages={str(n): t.get("stage") for n, t in enumerate(tickets, 1)}
-        )
-        if choice == "b":
-            return
-        if cursor and choice.lower() == "m":
-            load_page = True
-            continue
-        ticket = tickets[int(choice) - 1]
-        ui.header(f"Ticket {ticket['ref']}", username)
-        try:
-            ticket.update(client.get_ticket(ticket["ref"]))
-        except (OSError, HTTPException, ValueError):
-            ui.message("Could not load ticket details.")
-            continue
-        show_details(ticket)
-        if (
-            ui.menu([("e", "Edit ticket"), ("b", "Back to tickets")], default="b")
-            == "e"
-        ):
-            ui.header(f"Edit {ticket['ref']}", username)
-            saved = edit_ticket(client, ticket["ref"])
-            if saved:
-                ticket.update(saved)
-                show_details(ticket)
-                ui.menu([("b", "Back to tickets")])
+
+def choose_stage(current):
+    ui.message(f"Current stage: {ui.stage_label(current)}")
+    stages = {str(n): stage for n, stage in enumerate(STAGES, 1)}
+    options = [(key, ui.stage_label(stage)) for key, stage in stages.items()]
+    default = next((key for key, stage in stages.items() if stage == current), "k")
+    if default == "k":
+        options.append(("k", "Keep current stage"))
+    key = ui.menu(options, default=default, stages=stages)
+    return stages.get(key, current)
+
+
+def edit_dependencies(client, ref, current):
+    existing = current or []
+    ui.message(f"Dependencies: {ui.display(', '.join(existing) or 'None')}")
+    if ui.menu([("k", "Keep dependencies"), ("s", "Select dependencies")]) == "s":
+        selected = pick_dependencies(client, existing, exclude=ref)
+        if selected is not None and set(selected) != set(existing):
+            return selected
+    return current
+
+
+# ----- Create -----------------------------------------------------------------
 
 
 def create_ticket(client: TicketForgeClient, username: str) -> None:
@@ -216,12 +74,136 @@ def create_ticket(client: TicketForgeClient, username: str) -> None:
     ui.message(f"Title: {ui.display(title)}")
     description = ui.field("Enter a description: ")
     ui.message(f"Description: {ui.display(description) or '—'}")
-    try:
-        dependencies = choose_dependencies(client)
-        if dependencies is None:
+
+    while True:
+        choice = ui.menu(
+            [
+                ("1", "Choose dependencies"),
+                ("s", "Skip dependencies"),
+                ("c", "Cancel ticket"),
+            ],
+            default="s",
+        )
+        if choice == "c":
             return
+        dependencies = [] if choice == "s" else pick_dependencies(client, [])
+        if dependencies is not None:
+            break
+        ui.message("Choose again, skip dependencies, or cancel.")
+
+    try:
         ref = client.create_ticket(title, description, dependencies)
-    except (OSError, HTTPException, ValueError):
+    except TicketForgeError:
         ui.message("Could not confirm creation. Check your dashboard before retrying.")
     else:
         ui.message(f"Created {ref}.")
+
+
+# ----- Browse -----------------------------------------------------------------
+
+
+def browse_tickets(client: TicketForgeClient, username: str) -> None:
+    """List tickets a page at a time; open any row to view or edit it."""
+    try:
+        tickets, cursor = client.list_tickets()
+    except TicketForgeError:
+        ui.message("Could not load tickets. Please try again.")
+        return
+    if not tickets and not cursor:
+        ui.message("No tickets to display.")
+        return
+
+    while True:
+        ui.header("My tickets", username)
+        rows = dict(enumerate(tickets, 1))
+        options = [
+            (
+                str(n),
+                f"{t['ref']}  {t.get('title', '')}  ·  {ui.stage_label(t.get('stage'))}",
+            )
+            for n, t in rows.items()
+        ]
+        if cursor:
+            options.append(("m", f"Show {PAGE_SIZE} more"))
+        options.append(("b", "Back to home"))
+        choice = ui.menu(
+            options, stages={str(n): t.get("stage") for n, t in rows.items()}
+        )
+        if choice == "b":
+            return
+        if choice == "m":
+            try:
+                page, cursor = client.list_tickets(cursor)
+            except TicketForgeError:
+                ui.message("Could not load more tickets. Enter m to retry.")
+            else:
+                tickets.extend(page)
+        else:
+            show_ticket(client, rows[int(choice)], username)
+
+
+def show_ticket(client, ticket, username):
+    """Show one ticket's full details and offer to edit it."""
+    ui.header(f"Ticket {ticket['ref']}", username)
+    try:
+        ticket.update(client.get_ticket(ticket["ref"]))
+    except TicketForgeError:
+        ui.message("Could not load ticket details.")
+        return
+    ui.message(lambda: ui.ticket_box(ticket))  # re-rendered on resize
+    if ui.menu([("e", "Edit ticket"), ("b", "Back to tickets")], default="b") != "e":
+        return
+    ui.header(f"Edit {ticket['ref']}", username)
+    saved = edit_ticket(client, ticket["ref"])
+    if saved:
+        ticket.update(saved)
+        ui.message(lambda: ui.ticket_box(ticket))
+        ui.menu([("b", "Back to tickets")])
+
+
+# ----- Edit -------------------------------------------------------------------
+
+
+def edit_ticket(client, ref):
+    """Walk through each editable field. Return the refreshed ticket after a save."""
+    try:
+        original = client.get_ticket(ref)
+    except TicketForgeError:
+        ui.message("Could not load current ticket details.")
+        return None
+    missing = [field for field in EDITABLE_FIELDS if field not in original]
+    if missing:
+        ui.message(f"Ticket is missing {', '.join(missing)}. Edit cancelled.")
+        return None
+
+    draft = dict(original)
+    draft["title"] = edit_text("title", original["title"], required=True)
+    draft["description"] = edit_text(
+        "description", original["description"], clearable=True
+    )
+    draft["stage"] = choose_stage(original["stage"])
+    draft["dependsOn"] = edit_dependencies(client, ref, original["dependsOn"])
+
+    changes = {key: value for key, value in draft.items() if original[key] != value}
+    if not changes:
+        ui.message("No changes.")
+        return None
+    ui.message("\n" + ui.tint("Changes to save", ui.ACCENT))
+    for key, value in changes.items():
+        old, new = ui.display(original[key]), ui.display(value)
+        ui.message(f"  {key}: {old} → {ui.tint(new, ui.CHANGED)}")
+    if ui.menu([("y", "Save changes"), ("n", "Discard changes")], default="n") != "y":
+        ui.message("Edit cancelled.")
+        return None
+
+    try:
+        client.update_ticket(ref, draft)
+    except TicketForgeError:
+        ui.message("Could not confirm save. Reopen the ticket before retrying.")
+        return None
+    ui.message(f"Saved {ref}.")
+    try:
+        return client.get_ticket(ref)
+    except TicketForgeError:
+        ui.message("Saved, but could not refresh the details.")
+        return None
