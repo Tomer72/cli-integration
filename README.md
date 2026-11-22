@@ -18,3 +18,9 @@ tickets returned by TicketForge. Enter one or more displayed references, such as
 `TF-784, TF-783`, or enter `c` to cancel creation.
 The CLI prints the assigned reference (for example, `Created TF-784.`) and
 returns to the menu.
+
+## List tickets
+
+Choose `2` to see your first five tickets. When more are available, enter `m`
+to append the next five. Enter any displayed row number to view its details.
+Press Enter to return to the expanded list, or Enter at the list to go back.

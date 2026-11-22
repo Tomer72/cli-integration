@@ -37,13 +37,72 @@ def choose_dependencies(client: TicketForgeClient):
             print("Choose references from the displayed tickets.")
 
 
-def signed_in_menu(client: TicketForgeClient) -> None:
+def browse_tickets(client: TicketForgeClient) -> None:
+    tickets = []
+    seen_cursors = set()
+    cursor = None
+    load_page = True
     while True:
-        choice = input("1. Create ticket | Enter to log out: ").strip()
+        if load_page:
+            try:
+                rows, pagination = client.list_tickets(cursor)
+            except (OSError, HTTPException, ValueError):
+                if cursor is None:
+                    print("Could not load tickets. Please try again.")
+                    return
+                print("Could not load more tickets. Enter m to retry.")
+            else:
+                tickets.extend(rows)
+                cursor = None
+                if pagination["hasMore"]:
+                    token = pagination.get("nextCursor")
+                    if isinstance(token, str) and token and token not in seen_cursors:
+                        cursor = token
+                        seen_cursors.add(token)
+                    else:
+                        print("TicketForge returned an invalid cursor. Further pages are unavailable.")
+                if not tickets and cursor is None:
+                    print("No tickets to display.")
+                    return
+            load_page = False
+
+        for number, ticket in enumerate(tickets, start=1):
+            print(f"{number}. {ticket['ref']}  {ticket.get('title', '')}  [{ticket.get('stage', '—')}]")
+        options = " | m: Show 5 more" if cursor else ""
+        choice = input(f"Ticket number{options} | Enter to go back: ").strip()
         if not choice:
             return
+        if cursor and choice.lower() == "m":
+            load_page = True
+            continue
+        try:
+            number = int(choice)
+        except ValueError:
+            number = 0
+        if not 1 <= number <= len(tickets):
+            print(f"Choose a number from 1 to {len(tickets)}.")
+            continue
+
+        ticket = tickets[number - 1]
+        for field in ("ref", "title", "description", "stage", "created", "updated"):
+            print(f"{field.capitalize()}: {ticket.get(field) or '—'}")
+        input("Press Enter to return to the list.")
+
+
+def signed_in_menu(client: TicketForgeClient) -> None:
+    while True:
+        choice = input("1. Create ticket | 2. List tickets | Enter to log out: ").strip()
+        if not choice:
+            return
+        if choice == "2":
+            try:
+                browse_tickets(client)
+            except LoginRequired:
+                print("Please sign in again.")
+                return
+            continue
         if choice != "1":
-            print("Choose 1 or press Enter.")
+            print("Choose 1, 2, or press Enter.")
             continue
 
         title = input("Title: ").strip()

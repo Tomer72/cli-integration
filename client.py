@@ -1,6 +1,7 @@
 import base64
 import json
 from http.client import HTTPSConnection
+from urllib.parse import urlencode
 
 HOST = "integrations-assignment-ticketforge.vercel.app"
 
@@ -36,6 +37,21 @@ class TicketForgeClient:
             return json.load(response)
         finally:
             connection.close()
+
+    def list_tickets(self, cursor=None):
+        query = {"limit": 5}
+        if cursor is not None:
+            query["cursor"] = cursor
+        page = self._request_json("GET", "/api/tforge/workitems/mine?" + urlencode(query))
+        if not isinstance(page, dict) or not isinstance(page.get("workitems"), list):
+            raise ValueError("Missing ticket list")
+        for item in page["workitems"]:
+            if not isinstance(item, dict) or not isinstance(item.get("ref"), str):
+                raise ValueError("Missing ticket reference")
+        pagination = page.get("pagination")
+        if not isinstance(pagination, dict) or not isinstance(pagination.get("hasMore"), bool):
+            raise ValueError("Missing pagination information")
+        return page["workitems"], pagination
 
     def dependency_candidates(self):
         data = self._request_json("GET", "/api/tforge/workitems/mine")
